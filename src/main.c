@@ -1,7 +1,5 @@
-// ESP32 pulse generation test intended to control velocity of a stepper motor.
-// Does not track number of steps, and hence unsuitable for position control.
-//
-// Copyright (c) Roger Cheng and released "AS IS" under MIT License
+// Thanks to Roger Chengs StepperVelocity for most of the useful code.
+// Standard MIT License etc etc
 
 // PWM generation code adapted from Espressif ESP-IDF LEDC PWM example
 // https://github.com/espressif/esp-idf/blob/master/examples/peripherals/ledc/main/ledc_example_main.c

@@ -37,3 +37,4 @@ module with STEP and DIRECTION input. (Note the ESP32 is a 3.3V device so
 5V stepper control modules may need voltage level shifters.)
 
 ![ESP32 + TMC2208 Exercise Schematic](schematic.png)
+# LatheControl

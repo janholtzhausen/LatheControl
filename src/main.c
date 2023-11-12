@@ -22,15 +22,18 @@
 #include "i2cdev.h"
 #include <pcf8574.h>
 #include <string.h>
+#include <button.h>
 
 
 
 // STEP and DIRECTION output pins for stepper motor driver.
 static const gpio_num_t step_pin = GPIO_NUM_13;
 static const gpio_num_t direction_pin = GPIO_NUM_14;
+static const gpio_num_t reverse_pin = GPIO_NUM_15;
+// static const gpio_num_t led = GPIO_NUM_2;
 
 // Potentiometer input pin and values averaged over specified number of readings.
-static const int32_t multi_sample_count = 128;
+static const int32_t multi_sample_count = 4096;
 static const adc_channel_t channel = ADC_CHANNEL_6; // Translates to GPIO_NUM_34 if used with ADC1
 
 // ADC values as a result of using 12-bit width. Do not change unless changing ADC_WIDTH_BIT_12.
@@ -40,15 +43,15 @@ static const int32_t adc_mid = (adc_max - adc_min)/2;
 
 // PWM ranges as a result of timer resolution. Do not change unless changing from LEDC_TIMER_5_BIT.
 static const int32_t freq_min = 512; // Hz
-static const int32_t freq_max = 256000; // Hz
+static const int32_t freq_max = 160000; // Hz
 
 // Parameters for how potentiometer value is translated to motor velocity.
 // Free to tune as appropriate for application. ("Season to taste")
 static const int32_t adc_deadband = 10; // Stop if ADC value is within adc_mid +/- adc_deadband
 static const int32_t speed_min = freq_min; // Hz. Requires: freq_min <= speed_min < speed_max
-static const int32_t speed_max = 199903; // Hz Requires: speed_min < speed_max <= freq_max
+static const int32_t speed_max = 149927; // Hz Requires: speed_min < speed_max <= freq_max
 static const int32_t update_period = 100; // milliseconds to wait between updates
-static const int32_t accel_limit = 10000; // Hz. Speed change per update will not exceed this amount
+static const int32_t accel_limit = 2048; // Hz. Speed change per update will not exceed this amount
 static const bool    invert_direction = false;
 
 // Values resulting from above parameters, should never need to change directly.
@@ -117,6 +120,13 @@ void addThousandSeparators(char *output, int value) {
 void app_main(void)
 {
 
+
+button_event_t ev;
+QueueHandle_t button_events = button_init(PIN_BIT(reverse_pin));
+while (true) {
+    if (xQueueReceive(button_events, &ev, 1000/portTICK_PERIOD_MS)) {
+    }
+}
     ESP_ERROR_CHECK(i2cdev_init());
     xTaskCreate(lcd_test, "lcd_test", 4096, NULL, 5, NULL);
     
@@ -161,7 +171,7 @@ void app_main(void)
         .speed_mode = LEDC_HIGH_SPEED_MODE,
         .clk_cfg = LEDC_AUTO_CLK,
 
-        .freq_hz = 200000,
+        .freq_hz = 160000,
         .duty_resolution = LEDC_TIMER_1_BIT,
     };
     ledc_timer_config(&ledc_timer);

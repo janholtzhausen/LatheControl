@@ -50,8 +50,8 @@ static const int32_t freq_max = 160000; // Hz
 static const int32_t adc_deadband = 10; // Stop if ADC value is within adc_mid +/- adc_deadband
 static const int32_t speed_min = freq_min; // Hz. Requires: freq_min <= speed_min < speed_max
 static const int32_t speed_max = 149927; // Hz Requires: speed_min < speed_max <= freq_max
-static const int32_t update_period = 100; // milliseconds to wait between updates
-static const int32_t accel_limit = 2048; // Hz. Speed change per update will not exceed this amount
+static const int32_t update_period = 10; // milliseconds to wait between updates
+static const int32_t accel_limit = 5000; // Hz. Speed change per update will not exceed this amount
 static const bool    invert_direction = false;
 
 // Values resulting from above parameters, should never need to change directly.

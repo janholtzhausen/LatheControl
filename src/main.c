@@ -39,24 +39,18 @@ static const adc_channel_t channel = ADC_CHANNEL_6; // Translates to GPIO_NUM_34
 // ADC values as a result of using 12-bit width. Do not change unless changing ADC_WIDTH_BIT_12.
 static const int32_t adc_min = 0;
 static const int32_t adc_max = 4095;
-static const int32_t adc_mid = (adc_max - adc_min)/2;
 
 // PWM ranges as a result of timer resolution. Do not change unless changing from LEDC_TIMER_5_BIT.
 static const int32_t freq_min = 512; // Hz
 static const int32_t freq_max = 160000; // Hz
 
 // Parameters for how potentiometer value is translated to motor velocity.
-// Free to tune as appropriate for application. ("Season to taste")
-static const int32_t adc_deadband = 10; // Stop if ADC value is within adc_mid +/- adc_deadband
 static const int32_t speed_min = freq_min; // Hz. Requires: freq_min <= speed_min < speed_max
 static const int32_t speed_max = 149927; // Hz Requires: speed_min < speed_max <= freq_max
 static const int32_t update_period = 10; // milliseconds to wait between updates
 static const int32_t accel_limit = 5000; // Hz. Speed change per update will not exceed this amount
-static const bool    invert_direction = false;
+//static const bool    invert_direction = false;
 
-// Values resulting from above parameters, should never need to change directly.
-static const int32_t adc_motion = adc_mid - adc_deadband; // Range of ADC values producing motion
-static const int32_t speed_range = speed_max - speed_min; // Valid range of speed in Hz
 
 // Setup LCD
 static i2c_dev_t pcf8574;
@@ -127,6 +121,7 @@ while (true) {
     if (xQueueReceive(button_events, &ev, 1000/portTICK_PERIOD_MS)) {
     }
 }
+
     ESP_ERROR_CHECK(i2cdev_init());
     xTaskCreate(lcd_test, "lcd_test", 4096, NULL, 5, NULL);
     
@@ -220,8 +215,6 @@ while (true) {
     //
     int32_t adc_cumulative; // Accumulated value of multiple ADC samples
     int32_t adc_average;    // Average of multiple ADC samples [adc_min, adc_max]
-    int32_t adc_zerocenter; // ADC range centering at zero [-adc_mid, adc_mid]
-    int32_t adc_absolute;   // Absolute value of zero-centered ADC range [0, adc_mid]
 
     int32_t speed_target = 0;   // Speed targeted by ADC
     int32_t speed_current = 0;  // Speed within acceleration limites sent to PWM.
@@ -242,30 +235,8 @@ while (true) {
         // Then take the average of all those values.
         adc_average = adc_cumulative / multi_sample_count;
 
-
-        // Center range of values at zero.
-        adc_zerocenter = adc_average - adc_mid;
-
-        // For deadband & scaling math, throw away negative sign.
-        adc_absolute = abs(adc_zerocenter);
-
-        // Target speed is zero within deadband. Outside of deadband, it is
-        // scaled to range [speed_min, speed_max]
-        if (adc_absolute < adc_deadband) {
-            speed_target = 0;
-        } else {
-            adc_absolute -= adc_deadband; // Range now [0, adc_motion]
-
-            // Scale from [0, adc_motion] to [speed_min, speed_max]
-            speed_target = speed_min + ((adc_absolute * speed_range) / adc_motion);
-        }
-
-        // Put the negative sign back in for accleration calculation.
-        // Otherwise we would go straight from 100 to -100 instead of
-        // smoothly transitioning through zero.
-        if (adc_zerocenter < 0) {
-            speed_target *= -1;
-        }
+        speed_target = ( adc_average / adc_max ) *  speed_max;
+ 
 
         // Calculate new speed based on target and acceleration limit
         if (speed_target > speed_current + accel_limit) {
@@ -279,7 +250,7 @@ while (true) {
         }
 
         // Uncomment next line for diagnostic output
-        // printf("Speed target %ld -- current %ld\n", speed_target, speed_current);
+        printf("Speed target %ld -- current %ld\n", speed_target, speed_current);
 
         // Display the frequency on the LCD
         char lcd_text[16]; 
@@ -293,25 +264,10 @@ while (true) {
         hd44780_gotoxy(&lcd, 11, 1);
         hd44780_puts(&lcd, lcd_text);
 
-        // Output direction to direction_pin
-        direction_current = speed_current > 0;
-        if (invert_direction) {
-            direction_current = !direction_current;
-        }
         gpio_set_level(direction_pin, direction_current);
-
-        // Update PWM frequency with newly calculated speed
-        if (abs(speed_current) < speed_min) {
-            // Deadband. PWM duty cycle zero. PWM frequency irrelevant.
-            ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0);
-            ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
-        }
-        else {
-            // 16 is 50% duty cycle in 5-bit PWM resolution.
-            ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 1);
-            ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
-            ledc_set_freq(ledc_timer.speed_mode, ledc_timer.timer_num, abs(speed_current));
-        }
+        ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 1);
+        ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+        ledc_set_freq(ledc_timer.speed_mode, ledc_timer.timer_num, speed_current);
 
         // Wait before repeating, yielding to ESP32 housekeeping chores
         vTaskDelay(pdMS_TO_TICKS(update_period));

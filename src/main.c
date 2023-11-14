@@ -279,7 +279,7 @@ void app_main(void)
 
         // Display the frequency on the LCD
         char lcd_text[16]; 
-        snprintf(lcd_text, sizeof(lcd_text), "Stepper Pulse");
+        snprintf(lcd_text, sizeof(lcd_text), "Stepper Dir  %s", (direction_value ? "->" : "<-"));
         hd44780_gotoxy(&lcd, 0, 0);
         hd44780_puts(&lcd, lcd_text);
         addThousandSeparators(lcd_text, abs(speed_current));
@@ -295,7 +295,6 @@ if (gpio_get_level(limit_pin) == 1) {
     gpio_set_level(led_pin, 1);
     printf("Limit switch activated. LED enabled and motor reversed.\n");
     direction_value = !direction_value;
-    int tempspeed = (int)((float) speed_current / 2); 
     gpio_set_level(direction_pin, direction_value);
     vTaskDelay(100 / portTICK_PERIOD_MS);
     gpio_set_level(led_pin, 0);

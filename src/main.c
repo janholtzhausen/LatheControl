@@ -29,8 +29,8 @@
 // STEP and DIRECTION output pins for stepper motor driver.
 static const gpio_num_t step_pin = GPIO_NUM_13;
 static const gpio_num_t direction_pin = GPIO_NUM_14;
-static const gpio_num_t reverse_pin = GPIO_NUM_15;
-// static const gpio_num_t led = GPIO_NUM_2;
+static const gpio_num_t limit_pin = GPIO_NUM_15;
+static const gpio_num_t led_pin = GPIO_NUM_2;
 
 // Potentiometer input pin and values averaged over specified number of readings.
 static const int32_t multi_sample_count = 4096;
@@ -49,7 +49,8 @@ static const int32_t speed_min = freq_min; // Hz. Requires: freq_min <= speed_mi
 static const int32_t speed_max = 149927; // Hz Requires: speed_min < speed_max <= freq_max
 static const int32_t update_period = 10; // milliseconds to wait between updates
 static const int32_t accel_limit = 5000; // Hz. Speed change per update will not exceed this amount
-//static const bool    invert_direction = false;
+
+bool direction_value = 0;
 
 
 // Setup LCD
@@ -58,6 +59,33 @@ static esp_err_t write_lcd_data(const hd44780_t *lcd, uint8_t data)
 {
     return pcf8574_port_write(&pcf8574, data);
 }
+
+SemaphoreHandle_t xSemaphore = NULL;
+
+void IRAM_ATTR limit_isr_handler(void* arg) {
+    xSemaphoreGiveFromISR(xSemaphore, NULL);
+}
+
+void limit_task(void *pvParameter) {
+    while (1) {
+        if (xSemaphoreTake(xSemaphore, portMAX_DELAY)) {
+            // Limit switch pressed, enable LED
+            gpio_set_level(led_pin, 1);
+            printf("Limit switch Activate. LED enabled and motor reversed.\n");
+            direction_value = !direction_value;
+
+
+
+            // To disable the LED after some time, you can use vTaskDelay
+            vTaskDelay(5000 / portTICK_PERIOD_MS);
+
+            // Disable LED
+            gpio_set_level(led_pin, 0);
+        }
+    }
+}
+
+
 
 hd44780_t lcd = {
     .write_cb = write_lcd_data, // use callback to send data to LCD by I2C GPIO expander
@@ -77,8 +105,6 @@ hd44780_t lcd = {
 // Init LCD and check for errors
 void lcd_test(void *pvParameters)
 {
-
-
     memset(&pcf8574, 0, sizeof(i2c_dev_t));
     ESP_ERROR_CHECK(pcf8574_init_desc(&pcf8574, 0x3F, 0, 21, 22));
 
@@ -113,20 +139,9 @@ void addThousandSeparators(char *output, int value) {
 
 void app_main(void)
 {
-
-
-button_event_t ev;
-QueueHandle_t button_events = button_init(PIN_BIT(reverse_pin));
-while (true) {
-    if (xQueueReceive(button_events, &ev, 1000/portTICK_PERIOD_MS)) {
-    }
-}
-
     ESP_ERROR_CHECK(i2cdev_init());
     xTaskCreate(lcd_test, "lcd_test", 4096, NULL, 5, NULL);
     
-
-
     /////////////////////////////////////////////////////////////////////////
     //
     // Parameter checking
@@ -190,14 +205,55 @@ while (true) {
     //  No interrupts will be driven by this pin
     //  No internal pull-down or pull-up resistors
     //
-    gpio_config_t io_conf = {
+    gpio_config_t io_conf_direction = {
         .mode = GPIO_MODE_OUTPUT,
         .intr_type = GPIO_INTR_DISABLE,
         .pull_down_en = 0,
         .pull_up_en = 0,
         .pin_bit_mask = (1ULL<<direction_pin),
     };
-    gpio_config(&io_conf);
+    gpio_config(&io_conf_direction);
+
+    /////////////////////////////////////////////////////////////////////////
+    //
+    // Configure digital input for our LIMIT pin.
+    //  An interrupt will be driven by this pin when it goes positive
+    //  Internal pull-up resistor active
+    //
+    gpio_config_t io_conf_limit = {
+        .mode = GPIO_MODE_INPUT,
+        .intr_type = GPIO_INTR_POSEDGE,
+        .pull_down_en = 0,
+        .pull_up_en = 1,
+        .pin_bit_mask = (1ULL<<limit_pin),
+    };
+    gpio_config(&io_conf_limit);
+
+    /////////////////////////////////////////////////////////////////////////
+    //
+    // Configure digital output for our LED pin.
+    //  No interrupts will be driven by this pin
+    //  No internal pull-down or pull-up resistors
+    //
+    gpio_config_t io_conf_led = {
+        .mode = GPIO_MODE_OUTPUT,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pull_down_en = 0,
+        .pull_up_en = 0,
+        .pin_bit_mask = (1ULL << led_pin),
+    };
+    gpio_config(&io_conf_led);
+
+    // Create a semaphore to signal the ISR to the task
+    xSemaphore = xSemaphoreCreateBinary();
+
+    // Install ISR service with default configuration
+    gpio_install_isr_service(0);
+
+    // Hook ISR handler to the limit switch pin
+    gpio_isr_handler_add(limit_pin, limit_isr_handler, (void *)limit_pin);
+
+    xTaskCreate(&limit_task, "limit_task", 2048, NULL, 10, NULL);
 
     /////////////////////////////////////////////////////////////////////////
     //
@@ -218,8 +274,6 @@ while (true) {
 
     int32_t speed_target = 0;   // Speed targeted by ADC
     int32_t speed_current = 0;  // Speed within acceleration limites sent to PWM.
-
-    bool direction_current = true; // Movement direction
 
     /////////////////////////////////////////////////////////////////////////
     //
@@ -264,7 +318,7 @@ while (true) {
         hd44780_gotoxy(&lcd, 11, 1);
         hd44780_puts(&lcd, lcd_text);
 
-        gpio_set_level(direction_pin, direction_current);
+        gpio_set_level(direction_pin, direction_value);
         ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 1);
         ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
         ledc_set_freq(ledc_timer.speed_mode, ledc_timer.timer_num, speed_current);
